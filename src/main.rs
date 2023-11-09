@@ -1,5 +1,5 @@
 use std::{net::{TcpListener,TcpStream,IpAddr,Ipv4Addr,SocketAddr},io::{self,Write,Read},thread::spawn,
-    path::PathBuf, fs::read_dir};
+    path::PathBuf,fs::{read_dir,Metadata}};
 #[derive(Debug, Clone, Copy)]
 #[repr(u32)]
 #[allow(dead_code)]
@@ -152,9 +152,9 @@ impl Client {
                     send_cmd(&mut self.stream,ResultCode::DataConnectionOpen,"Comenzo el directorio de la lista");
                     let mut out=String::new();
                     for entry in read_dir(tmp).unwrap() {
-                            if let Ok(entry) = entry {
-                                add_file_info(entry.path(), &mut out);
-                            }
+                        if let Ok(entry) = entry {
+                            add_file_info(entry.path(), &mut out);
+                        }
                         send_data(data_writer, &out)
                     }
                 }else{
@@ -228,7 +228,53 @@ fn send_data(stream:&mut TcpStream,s:&str) {
     write!(stream,"{}",s).unwrap();
 }
 fn add_file_info(path:PathBuf,out:&mut String) {
-    
+    let extra=if path.is_dir(){"/"}else{""};
+    let is_dir=if path.is_dir(){"d"}else{"-"};
+    let meta=match ::std::fs::metadata(&path) {
+        Ok(meta)=>meta,
+        _ => return,
+    };
+    let (time,file_size)=get_file_info(&meta);
+    let path=match path.to_str() {
+        Some(path)=>path,
+        _ => return,
+    };
+    let rigths=if meta.permissions().readonly() {
+        "r--r--r--"
+    }else{
+        "rw-rw-rw-"
+    };
+    let file_str=
+        format!("{is_dir}{rigths} {links} {owner} {group} {size} {month} {day} {hour}:{min} {path}{extra}\r\n",
+        is_dir=is_dir,
+        rigths=rigths,
+        links=1,
+        owner="anonymous",
+        group="anonymous",
+        size=file_size,
+        month=MONTHS[time.tm_mon as usize],
+        day=time.tm_mday,
+        hour=time.tm_hour,
+        min=time.tm_min,
+        path=path,
+        extra=extra);
+    out.push_str(&file_str);
+    println!("==> {:?}",&file_str);
+}
+#[macro_use]
+extern crate cfg_if;
+cfg_if!{
+    if #[cfg(windows)]{
+        fn get_file_info(meta:&Metadata)->(time::Tm,u64){
+            use std::os::windows::prelude::*;
+            (time::at(time::Timespec::new(meta.last_write_time())),meta.file_size())
+        }
+    }else{
+        fn get_file_info(meta:&Metadata)->(time::Tm,u64){
+            use std::os::unix::prelude::*;
+            (time::at(time::Timespec::new(meta.mtime(),0)),meta.size())
+        }
+    }
 }
 fn main() {
     let listener=TcpListener::bind("127.0.0.1:1234")
