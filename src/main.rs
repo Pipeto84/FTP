@@ -1,5 +1,6 @@
 use std::{net::{TcpListener,TcpStream,IpAddr,Ipv4Addr,SocketAddr},io::{self,Write,Read},thread::spawn,
     path::PathBuf,fs::{read_dir,Metadata}};
+static MONTH:[&str;12]=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 #[derive(Debug, Clone, Copy)]
 #[repr(u32)]
 #[allow(dead_code)]
@@ -148,7 +149,7 @@ impl Client {
             }
             Command::List=>{
                 if let Some(ref mut data_writer) = self.data_writer {
-                    let mut tmp=PathBuf::from(".");
+                    let tmp=PathBuf::from(".");
                     send_cmd(&mut self.stream,ResultCode::DataConnectionOpen,"Comenzo el directorio de la lista");
                     let mut out=String::new();
                     for entry in read_dir(tmp).unwrap() {
@@ -252,7 +253,7 @@ fn add_file_info(path:PathBuf,out:&mut String) {
         owner="anonymous",
         group="anonymous",
         size=file_size,
-        month=MONTHS[time.tm_mon as usize],
+        month=MONTH[time.tm_mon as usize],
         day=time.tm_mday,
         hour=time.tm_hour,
         min=time.tm_min,
