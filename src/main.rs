@@ -1,5 +1,5 @@
 use std::{net::{TcpListener,TcpStream,IpAddr,Ipv4Addr,SocketAddr},io::{self,Write,Read},thread::spawn,
-    path::PathBuf,fs::{read_dir,Metadata}};
+    path::{PathBuf, Path},fs::{read_dir,Metadata}};
 static MONTH:[&str;12]=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 #[derive(Debug, Clone, Copy)]
 #[repr(u32)]
@@ -54,6 +54,7 @@ enum Command {
     Type,
     Pasv,
     List,
+    Cwd(PathBuf),
     User(String),
     Unknown(String),
 }
@@ -86,6 +87,8 @@ impl Command {
             b"TYPE" => Command::Type,
             b"PASV" => Command::Pasv,
             b"LIST" => Command::List,
+            b"CWD" => Command::Cwd(data.map(|bytes|
+                Path::new(std::str::from_utf8(bytes).unwrap()).to_path_buf()).unwrap()),
             b"USER" => Command::User(data.map(|bytes|String::from_utf8(bytes.to_vec())
                 .expect("No se puede convertir bytes to string")).unwrap_or_default()),
             s => Command::Unknown(std::str::from_utf8(s).unwrap_or("").to_owned()),
@@ -166,6 +169,7 @@ impl Client {
                     send_cmd(&mut self.stream,ResultCode::ClosingDataConnection,"Transferencia hecha");
                 }
             }
+            Command::Cwd(directory)=>self.cwd(directory),
             Command::User(username)=>{
                 if username.is_empty() {
                     send_cmd(&mut self.stream,ResultCode::InvalidParameterOrArgument,"Usuario invalido")
