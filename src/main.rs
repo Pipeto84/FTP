@@ -1,5 +1,5 @@
 use std::{net::{TcpListener,TcpStream,IpAddr,Ipv4Addr,SocketAddr},io::{self,Write,Read},thread::spawn,
-    path::{PathBuf, Path},fs::{read_dir,Metadata}};
+    path::{PathBuf, Path},fs::{read_dir,Metadata}, env};
 static MONTH:[&str;12]=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 #[derive(Debug, Clone, Copy)]
 #[repr(u32)]
@@ -68,6 +68,7 @@ impl AsRef<str> for Command {
             Command::Type => "TYPE",
             Command::Pasv => "PASV",
             Command::List => "LIST",
+            Command::Cwd(_) => "CWD",
             Command::User(_) => "USER",
             Command::Unknown(_) => "UNKN",
         }
@@ -180,6 +181,33 @@ impl Client {
             }
             Command::Unknown(s)=>send_cmd(&mut self.stream,ResultCode::UnknownCommand,&format!("No se implemento:'{}'",s)),
         }
+    }
+    fn complete_path(&self, path:PathBuf,server_root:&PathBuf)->Result<PathBuf,io::Error> {
+        let directory=server_root.join(if path.has_root() {
+            path.iter().skip(1).collect()
+        }else {
+            path
+        });
+        let dir=directory.canonicalize();
+        if let Ok(ref dir) = dir {
+            if !dir.starts_with(&server_root) {
+                return Err(io::ErrorKind::PermissionDenied.into());
+            }
+        }
+        dir
+    }
+    fn cwd(mut self,directory:PathBuf) {
+        let server_root=env::current_dir().unwrap();
+        let path=self.cwd.join(&directory);
+        if let Ok(dir) = self.complete_path(path, &server_root) {
+            if let Ok(prefix) = dir.strip_prefix(&server_root).map(|p|p.to_path_buf()) {
+                self.cwd=prefix.to_path_buf();
+                send_cmd(&mut self.stream, ResultCode::Ok, 
+                    &format!("Directorio cambio a \"{}\"",directory.display()));
+                    return
+            }
+        }
+        send_cmd(&mut self.stream, ResultCode::FileNotFound,"No encontro archivo o carpeta");
     }
 }
 fn read_all_message(stream:&mut TcpStream)->Vec<u8> {
