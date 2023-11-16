@@ -196,7 +196,7 @@ impl Client {
         }
         dir
     }
-    fn cwd(mut self,directory:PathBuf) {
+    fn cwd(&mut self,directory:PathBuf) {
         let server_root=env::current_dir().unwrap();
         let path=self.cwd.join(&directory);
         if let Ok(dir) = self.complete_path(path, &server_root) {
