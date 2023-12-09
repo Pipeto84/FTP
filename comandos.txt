@@ -1,0 +1,45 @@
+handle_client: recibe TcpStream
+send_cmd: 220
+Client::new con el TcpStream
+
+    read_all_message: b"AUTH TLS"
+    Command::new => Ok(Command::Auth)
+    handle_cmd(Command::Auth) => send_cmd: 502
+    
+    read_all_message: b"AUTH SSL"
+    Command::new => Ok(Command::Auth)
+    handle_cmd(Command::Auth) => send_cmd: 502
+    
+    read_all_message: b"USER anonymous"
+    Command::new => Ok(Command::User("anonymous"))
+    handle_cmd(Command::User("anonymous")) => send_cmd: 230
+
+    read_all_message: b"SYST"
+    Command::new => Ok(Command::Syst)
+    handle_cmd(Command::Syst) => send_cmd: 200
+
+    read_all_message: b"FEAT"
+    Command::new => Ok(Command::Unknown(s))
+    handle_cmd(Command::Unknown(s)) => send_cmd: 500
+
+    read_all_message: b"CWD /"
+    Command::new => Ok(Command::Cwd("/"))
+    handle_cmd(Command::Cwd("/")) => send_cmd: 200
+    
+    read_all_message: b"PWD"
+    Command::new => Ok(Command::Pwd)
+    handle_cmd(Command::Pwd) => send_cmd: 550
+
+    read_all_message: b"TYPE I"
+    Command::new => Ok(Command::Type)
+    handle_cmd(Command::Type) => send_cmd: 200
+
+    read_all_message: b"PASV"
+    Command::new => Ok(Command::Pasv)
+    handle_cmd(Command::Pasv) => send_cmd: 227
+
+    read_all_message: b"LIST"
+    Command::new => Ok(Command::List)
+    handle_cmd(Command::List) => send_cmd: 225
+
+

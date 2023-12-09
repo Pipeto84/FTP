@@ -128,7 +128,7 @@ impl Client {
             Command::NoOp=>send_cmd(&mut self.stream,ResultCode::Ok,"Haciendo nada"),
             Command::Pwd=>{
                 let msg=format!("{}",self.cwd.to_str().unwrap_or(""));
-                if !msg.is_empty() {
+                if msg.is_empty() {
                     let message=format!("\"/{}\" ",msg);
                     send_cmd(&mut self.stream,ResultCode::PATHNAMECreated,&message)
                 }else {
@@ -183,6 +183,7 @@ impl Client {
         }
     }
     fn complete_path(&self, path:PathBuf,server_root:&PathBuf)->Result<PathBuf,io::Error> {
+        println!("{:?}\n{:?}\n",&server_root,&path);
         let directory=server_root.join(if path.has_root() {
             path.iter().skip(1).collect()
         }else {
@@ -194,14 +195,16 @@ impl Client {
                 return Err(io::ErrorKind::PermissionDenied.into());
             }
         }
+        println!("{:?}",&dir);
         dir
     }
     fn cwd(&mut self,directory:PathBuf) {
         let server_root=env::current_dir().unwrap();
         let path=self.cwd.join(&directory);
+        println!("{:?}\n{:?}\n{:?}\n{:?}\n",&server_root,&path,&self.cwd,&directory);
         if let Ok(dir) = self.complete_path(path, &server_root) {
             if let Ok(prefix) = dir.strip_prefix(&server_root).map(|p|p.to_path_buf()) {
-                self.cwd=prefix.to_path_buf();
+                self.cwd=prefix;
                 send_cmd(&mut self.stream, ResultCode::Ok, 
                     &format!("Directorio cambio a \"{}\"",directory.display()));
                     return
@@ -269,8 +272,11 @@ fn add_file_info(path:PathBuf,out:&mut String) {
     };
     let (time,file_size)=get_file_info(&meta);
     let path=match path.to_str() {
-        Some(path)=>path,
-        _ => return,
+        Some(path) => match path.split("/").last() {
+            Some(path)=>path,
+            _ => return,
+        },
+        _ =>return,
     };
     let rigths=if meta.permissions().readonly() {
         "r--r--r--"
