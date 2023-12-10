@@ -53,6 +53,7 @@ enum Command {
     Pwd,
     Type,
     Pasv,
+    CdUp,
     List,
     Cwd(PathBuf),
     User(String),
@@ -67,6 +68,7 @@ impl AsRef<str> for Command {
             Command::Pwd => "PWD",
             Command::Type => "TYPE",
             Command::Pasv => "PASV",
+            Command::CdUp => "CDUP",
             Command::List => "LIST",
             Command::Cwd(_) => "CWD",
             Command::User(_) => "USER",
@@ -87,6 +89,7 @@ impl Command {
             b"PWD" => Command::Pwd,
             b"TYPE" => Command::Type,
             b"PASV" => Command::Pasv,
+            b"CDUP" => Command::CdUp,
             b"LIST" => Command::List,
             b"CWD" => Command::Cwd(data.map(|bytes|
                 Path::new(std::str::from_utf8(bytes).unwrap()).to_path_buf()).unwrap()),
@@ -128,7 +131,7 @@ impl Client {
             Command::NoOp=>send_cmd(&mut self.stream,ResultCode::Ok,"Haciendo nada"),
             Command::Pwd=>{
                 let msg=format!("{}",self.cwd.to_str().unwrap_or(""));
-                if msg.is_empty() {
+                if !msg.is_empty() {
                     let message=format!("\"/{}\" ",msg);
                     send_cmd(&mut self.stream,ResultCode::PATHNAMECreated,&message)
                 }else {
@@ -150,6 +153,12 @@ impl Client {
                         _ =>{send_cmd(&mut self.stream,ResultCode::ServiceNotAvailable,"Problemas pasan");}
                     }
                 }
+            }
+            Command::CdUp=>{
+                if let Some(path) = self.cwd.parent().map(Path::to_path_buf) {
+                    self.cwd=path;
+                }
+                send_cmd(&mut self.stream,ResultCode::Ok,"Echo");
             }
             Command::List=>{
                 if let Some(ref mut data_writer) = self.data_writer {
@@ -183,7 +192,6 @@ impl Client {
         }
     }
     fn complete_path(&self, path:PathBuf,server_root:&PathBuf)->Result<PathBuf,io::Error> {
-        println!("{:?}\n{:?}\n",&server_root,&path);
         let directory=server_root.join(if path.has_root() {
             path.iter().skip(1).collect()
         }else {
@@ -201,7 +209,6 @@ impl Client {
     fn cwd(&mut self,directory:PathBuf) {
         let server_root=env::current_dir().unwrap();
         let path=self.cwd.join(&directory);
-        println!("{:?}\n{:?}\n{:?}\n{:?}\n",&server_root,&path,&self.cwd,&directory);
         if let Ok(dir) = self.complete_path(path, &server_root) {
             if let Ok(prefix) = dir.strip_prefix(&server_root).map(|p|p.to_path_buf()) {
                 self.cwd=prefix;
