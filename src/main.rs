@@ -1,5 +1,5 @@
 use std::{net::{TcpListener,TcpStream,IpAddr,Ipv4Addr,SocketAddr},io::{self,Write,Read},thread::spawn,
-    path::{PathBuf, Path},fs::{read_dir,Metadata}, env};
+    path::{PathBuf,Path},fs::{read_dir,Metadata,create_dir,remove_dir_all}, env};
 static MONTH:[&str;12]=["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 #[derive(Debug, Clone, Copy)]
 #[repr(u32)]
@@ -54,7 +54,9 @@ enum Command {
     Type,
     Pasv,
     CdUp,
-    List(Option<PathBuf>),
+    Rmd(PathBuf),
+    Mkd(PathBuf),
+    List(PathBuf),
     Cwd(PathBuf),
     User(String),
     Unknown(String),
@@ -69,6 +71,8 @@ impl AsRef<str> for Command {
             Command::Type => "TYPE",
             Command::Pasv => "PASV",
             Command::CdUp => "CDUP",
+            Command::Rmd(_) => "RMD",
+            Command::Mkd(_) => "MKD",
             Command::List(_) => "LIST",
             Command::Cwd(_) => "CWD",
             Command::User(_) => "USER",
@@ -90,8 +94,11 @@ impl Command {
             b"TYPE" => Command::Type,
             b"PASV" => Command::Pasv,
             b"CDUP" => Command::CdUp,
-            b"LIST" => Command::List(data.map(|bytes|
-                Path::new(std::str::from_utf8(bytes).unwrap()).to_path_buf())),
+            b"RMD" => Command::Rmd(data.map(|bytes|
+                Path::new(std::str::from_utf8(bytes).unwrap()).to_path_buf()).unwrap()),
+            b"MKD" => Command::Mkd(data.map(|bytes|
+                Path::new(std::str::from_utf8(bytes).unwrap()).to_path_buf()).unwrap()),
+            b"LIST" => Command::List(Path::new("/").to_path_buf()),
             b"CWD" => Command::Cwd(data.map(|bytes|
                 Path::new(std::str::from_utf8(bytes).unwrap()).to_path_buf()).unwrap()),
             b"USER" => Command::User(data.map(|bytes|String::from_utf8(bytes.to_vec())
@@ -161,10 +168,12 @@ impl Client {
                 }
                 send_cmd(&mut self.stream,ResultCode::Ok,"Echo");
             }
+            Command::Rmd(path)=>self.rmd(path),
+            Command::Mkd(path)=>self.mkd(path),
             Command::List(path)=>{
                 if let Some(ref mut data_writer) = self.data_writer {
                     let server_root=env::current_dir().unwrap();
-                    let path=self.cwd.join(path.unwrap_or_default());
+                    let path=self.cwd.join(path);
                     let directory=PathBuf::from(&path);
                     if let Ok(path) = complete_path(directory, &server_root) {
                         send_cmd(&mut self.stream,ResultCode::DataConnectionAlreadyOpen,"Comenzo el directorio de la lista");
@@ -215,6 +224,34 @@ impl Client {
         }
         send_cmd(&mut self.stream, ResultCode::FileNotFound,"No encontro archivo o carpeta");
     }
+    fn mkd(&mut self,path:PathBuf) {
+        let server_root=env::current_dir().unwrap();
+        let path=self.cwd.join(&path);
+        if let Some(parent) = path.parent().map(|p|p.to_path_buf()) {
+            if let Ok(mut dir) = complete_path(parent, &server_root) {
+                if dir.is_dir() {
+                    if let Some(filename) = path.file_name().map(|p|p.to_os_string()) {
+                        dir.push(filename);
+                        if create_dir(dir).is_ok() {
+                            send_cmd(&mut self.stream, ResultCode::PATHNAMECreated, 
+                                "Se creo el folder exitosamente");
+                            return
+                        }
+                    }
+                }
+            }
+        }
+    }
+    fn rmd(&mut self,path:PathBuf) {
+        let server_root=env::current_dir().unwrap();
+        if let Ok(path) = complete_path(path, &server_root) {
+            if remove_dir_all(path).is_ok() {
+                send_cmd(&mut self.stream, ResultCode::RequestedFileActionOkay, "Folder removido exitosamente");
+                return
+            }
+        }
+        send_cmd(&mut self.stream, ResultCode::FileNotFound, "No se pudo remover la carpeta");
+    }
 }
 fn read_all_message(stream:&mut TcpStream)->Vec<u8> {
     let buf=&mut [0;1];
@@ -252,6 +289,7 @@ fn handle_client(mut stream:TcpStream) {
     let mut client=Client::new(stream);
     loop {
         let data=read_all_message(&mut client.stream);
+        println!("{:?}",&String::from_utf8(data.clone()));
         if data.is_empty() {
             println!("cliente desconectado");
             break;
