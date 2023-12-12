@@ -54,7 +54,7 @@ enum Command {
     Type,
     Pasv,
     CdUp,
-    List,
+    List(Option<PathBuf>),
     Cwd(PathBuf),
     User(String),
     Unknown(String),
@@ -69,7 +69,7 @@ impl AsRef<str> for Command {
             Command::Type => "TYPE",
             Command::Pasv => "PASV",
             Command::CdUp => "CDUP",
-            Command::List => "LIST",
+            Command::List(_) => "LIST",
             Command::Cwd(_) => "CWD",
             Command::User(_) => "USER",
             Command::Unknown(_) => "UNKN",
@@ -90,7 +90,8 @@ impl Command {
             b"TYPE" => Command::Type,
             b"PASV" => Command::Pasv,
             b"CDUP" => Command::CdUp,
-            b"LIST" => Command::List,
+            b"LIST" => Command::List(data.map(|bytes|
+                Path::new(std::str::from_utf8(bytes).unwrap()).to_path_buf())),
             b"CWD" => Command::Cwd(data.map(|bytes|
                 Path::new(std::str::from_utf8(bytes).unwrap()).to_path_buf()).unwrap()),
             b"USER" => Command::User(data.map(|bytes|String::from_utf8(bytes.to_vec())
@@ -160,18 +161,28 @@ impl Client {
                 }
                 send_cmd(&mut self.stream,ResultCode::Ok,"Echo");
             }
-            Command::List=>{
+            Command::List(path)=>{
                 if let Some(ref mut data_writer) = self.data_writer {
-                    let tmp=PathBuf::from(".");
-                    send_cmd(&mut self.stream,ResultCode::DataConnectionOpen,"Comenzo el directorio de la lista");
-                    let mut out=String::new();
-                    for entry in read_dir(tmp).unwrap() {
-                        if let Ok(entry) = entry {
-                            add_file_info(entry.path(), &mut out);
+                    let server_root=env::current_dir().unwrap();
+                    let path=self.cwd.join(path.unwrap_or_default());
+                    let directory=PathBuf::from(&path);
+                    if let Ok(path) = complete_path(directory, &server_root) {
+                        send_cmd(&mut self.stream,ResultCode::DataConnectionAlreadyOpen,"Comenzo el directorio de la lista");
+                        let mut out=String::new();
+                        if path.is_dir() {
+                            for entry in read_dir(path).unwrap() {
+                                if let Ok(entry) = entry {
+                                    add_file_info(entry.path(), &mut out);
+                                }
+                                send_data(data_writer, &out)
+                            }
+                        }else {
+                            add_file_info(path, &mut out)
                         }
-                        send_data(data_writer, &out)
+                    } else {
+                        send_cmd(&mut self.stream, ResultCode::InvalidParameterOrArgument, "No se encontro archivo o directorio");
                     }
-                }else{
+                } else {
                     send_cmd(&mut self.stream,ResultCode::ConnectionClosed,"No abrio coneccion de datos");
                 }
                 if self.data_writer.is_some() {
@@ -191,25 +202,10 @@ impl Client {
             Command::Unknown(s)=>send_cmd(&mut self.stream,ResultCode::UnknownCommand,&format!("No se implemento:'{}'",s)),
         }
     }
-    fn complete_path(&self, path:PathBuf,server_root:&PathBuf)->Result<PathBuf,io::Error> {
-        let directory=server_root.join(if path.has_root() {
-            path.iter().skip(1).collect()
-        }else {
-            path
-        });
-        let dir=directory.canonicalize();
-        if let Ok(ref dir) = dir {
-            if !dir.starts_with(&server_root) {
-                return Err(io::ErrorKind::PermissionDenied.into());
-            }
-        }
-        println!("{:?}",&dir);
-        dir
-    }
     fn cwd(&mut self,directory:PathBuf) {
         let server_root=env::current_dir().unwrap();
         let path=self.cwd.join(&directory);
-        if let Ok(dir) = self.complete_path(path, &server_root) {
+        if let Ok(dir) = complete_path(path, &server_root) {
             if let Ok(prefix) = dir.strip_prefix(&server_root).map(|p|p.to_path_buf()) {
                 self.cwd=prefix;
                 send_cmd(&mut self.stream, ResultCode::Ok, 
@@ -306,6 +302,21 @@ fn add_file_info(path:PathBuf,out:&mut String) {
         extra=extra);
     out.push_str(&file_str);
     println!("==> {:?}",&file_str);
+}
+fn complete_path(path:PathBuf,server_root:&PathBuf)->Result<PathBuf,io::Error> {
+    let directory=server_root.join(if path.has_root() {
+        path.iter().skip(1).collect()
+    }else {
+        path
+    });
+    let dir=directory.canonicalize();
+    if let Ok(ref dir) = dir {
+        if !dir.starts_with(&server_root) {
+            return Err(io::ErrorKind::PermissionDenied.into());
+        }
+    }
+    println!("{:?}",&dir);
+    dir
 }
 #[macro_use]
 extern crate cfg_if;
